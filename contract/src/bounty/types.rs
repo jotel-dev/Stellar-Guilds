@@ -5,12 +5,13 @@ use soroban_sdk::{contracttype, Address, String};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BountyStatus {
     Open = 0,
-    Claimed = 1,
-    UnderReview = 2,
-    Completed = 3,
-    Cancelled = 4,
-    Expired = 5,
-    AwaitingFunds = 6,
+    Funded = 1,
+    Claimed = 2,
+    UnderReview = 3,
+    Completed = 4,
+    Cancelled = 5,
+    Expired = 6,
+    AwaitingFunds = 7,
 }
 
 /// Bounty struct containing all bounty metadata and state
@@ -93,6 +94,7 @@ pub struct WorkSubmittedEvent {
 pub struct BountyApprovedEvent {
     pub bounty_id: u64,
     pub approver: Address,
+    pub claimer: Address,
 }
 
 /// Event emitted when escrow is released

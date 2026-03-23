@@ -293,7 +293,7 @@ fn test_fund_bounty_success() {
 
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.funded_amount, 100);
-    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.status, BountyStatus::Funded);
 }
 
 #[test]
@@ -335,7 +335,7 @@ fn test_fund_bounty_partial_funding() {
     client.fund_bounty(&bounty_id, &funder, &50i128);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.funded_amount, 100);
-    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.status, BountyStatus::Funded);
 }
 
 #[test]
@@ -402,6 +402,7 @@ fn test_claim_bounty_success() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
 
     // Claim the bounty
     let result = client.claim_bounty(&bounty_id, &claimer);
@@ -446,6 +447,41 @@ fn test_claim_bounty_not_open_fails() {
 
 #[test]
 #[should_panic(expected = "Bounty is not open for claiming")]
+fn test_claim_bounty_requires_admin_approval() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let funder = Address::generate(&env);
+    let claimer = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    mint_tokens(&env, &token, &funder, 1000);
+
+    let title = String::from_str(&env, "Task");
+    let description = String::from_str(&env, "Description");
+    let bounty_id = client.create_bounty(
+        &guild_id,
+        &owner,
+        &title,
+        &description,
+        &100i128,
+        &token,
+        &2000u64,
+    );
+
+    client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.claim_bounty(&bounty_id, &claimer);
+}
+
+#[test]
+#[should_panic(expected = "Bounty is not open for claiming")]
 fn test_claim_bounty_already_claimed_fails() {
     let env = setup_env();
     let owner = Address::generate(&env);
@@ -477,10 +513,48 @@ fn test_claim_bounty_already_claimed_fails() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer1);
     client.claim_bounty(&bounty_id, &claimer1);
 
     // Double-claim should fail
     client.claim_bounty(&bounty_id, &claimer2);
+}
+
+#[test]
+#[should_panic(expected = "Bounty may only be claimed by the approved address")]
+fn test_claim_bounty_wrong_approved_address_fails() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let funder = Address::generate(&env);
+    let approved_claimer = Address::generate(&env);
+    let other_claimer = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    mint_tokens(&env, &token, &funder, 1000);
+
+    let title = String::from_str(&env, "Task");
+    let description = String::from_str(&env, "Description");
+    let bounty_id = client.create_bounty(
+        &guild_id,
+        &owner,
+        &title,
+        &description,
+        &100i128,
+        &token,
+        &2000u64,
+    );
+
+    client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &approved_claimer);
+    client.claim_bounty(&bounty_id, &other_claimer);
 }
 
 // ============ Work Submission Tests ============
@@ -516,6 +590,7 @@ fn test_submit_work_success() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
@@ -567,6 +642,77 @@ fn test_submit_work_no_claimer_fails() {
 // ============ Approval Tests ============
 
 #[test]
+fn test_approve_bounty_success() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let funder = Address::generate(&env);
+    let approved_claimer = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    mint_tokens(&env, &token, &funder, 1000);
+
+    let title = String::from_str(&env, "Task");
+    let description = String::from_str(&env, "Description");
+    let bounty_id = client.create_bounty(
+        &guild_id,
+        &owner,
+        &title,
+        &description,
+        &100i128,
+        &token,
+        &2000u64,
+    );
+
+    client.fund_bounty(&bounty_id, &funder, &100i128);
+
+    let result = client.approve_bounty(&bounty_id, &owner, &approved_claimer);
+    assert_eq!(result, true);
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.claimer, Some(approved_claimer));
+}
+
+#[test]
+#[should_panic(expected = "Bounty is not funded")]
+fn test_approve_bounty_wrong_status_fails() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let claimer = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    let title = String::from_str(&env, "Task");
+    let description = String::from_str(&env, "Description");
+    let bounty_id = client.create_bounty(
+        &guild_id,
+        &owner,
+        &title,
+        &description,
+        &100i128,
+        &token,
+        &2000u64,
+    );
+
+    client.approve_bounty(&bounty_id, &owner, &claimer);
+}
+
+#[test]
 fn test_approve_completion_success() {
     let env = setup_env();
     let owner = Address::generate(&env);
@@ -597,6 +743,7 @@ fn test_approve_completion_success() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
@@ -642,6 +789,7 @@ fn test_approve_completion_non_admin_fails() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
@@ -683,6 +831,7 @@ fn test_approve_completion_wrong_status_fails() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     // Approve without submission
@@ -722,6 +871,7 @@ fn test_release_escrow_success() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
@@ -769,6 +919,7 @@ fn test_release_escrow_not_completed_fails() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     // Try to release without completion
@@ -851,6 +1002,7 @@ fn test_cancel_bounty_after_claim_refunds_creator() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     // Owner cancels even after claim
@@ -928,6 +1080,7 @@ fn test_cancel_bounty_completed_fails() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &owner, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
@@ -1022,7 +1175,7 @@ fn test_expire_bounty_not_expired_yet() {
     assert_eq!(result, false);
 
     let bounty = client.get_bounty(&bounty_id);
-    assert_eq!(bounty.status, BountyStatus::Open);
+    assert_eq!(bounty.status, BountyStatus::Funded);
 }
 
 // ============ Query Tests ============
@@ -1119,27 +1272,32 @@ fn test_full_bounty_lifecycle() {
     // 2. Fund bounty
     client.fund_bounty(&bounty_id, &funder, &100i128);
     let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.status, BountyStatus::Funded);
+
+    // 3. Approve bounty for claimer
+    client.approve_bounty(&bounty_id, &owner, &claimer);
+    let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Open);
 
-    // 3. Claim bounty
+    // 4. Claim bounty
     client.claim_bounty(&bounty_id, &claimer);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Claimed);
     assert_eq!(bounty.claimer, Some(claimer.clone()));
 
-    // 4. Submit work
+    // 5. Submit work
     let submission = String::from_str(&env, "https://github.com/stellar-guilds/pr/42");
     client.submit_work(&bounty_id, &submission);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::UnderReview);
     assert_eq!(bounty.submission_url, Some(submission));
 
-    // 5. Approve completion
+    // 6. Approve completion
     client.approve_completion(&bounty_id, &owner);
     let bounty = client.get_bounty(&bounty_id);
     assert_eq!(bounty.status, BountyStatus::Completed);
 
-    // 6. Release escrow
+    // 7. Release escrow
     let funder_balance_before = get_token_balance(&env, &token, &funder);
     assert_eq!(funder_balance_before, 900); // 1000 - 100 funded
 
@@ -1208,9 +1366,9 @@ fn test_multiple_bounties_per_guild() {
     let bounty_1 = client.get_bounty(&bounty_id_2);
     let bounty_2 = client.get_bounty(&bounty_id_3);
 
-    assert_eq!(bounty_0.status, BountyStatus::Open);
+    assert_eq!(bounty_0.status, BountyStatus::Funded);
     assert_eq!(bounty_1.status, BountyStatus::AwaitingFunds);
-    assert_eq!(bounty_2.status, BountyStatus::Open);
+    assert_eq!(bounty_2.status, BountyStatus::Funded);
 }
 
 // ============ Admin Operations Tests ============
@@ -1250,6 +1408,7 @@ fn test_admin_can_approve_bounty() {
     );
 
     client.fund_bounty(&bounty_id, &funder, &100i128);
+    client.approve_bounty(&bounty_id, &admin, &claimer);
     client.claim_bounty(&bounty_id, &claimer);
 
     let submission = String::from_str(&env, "https://github.com/pr/123");
