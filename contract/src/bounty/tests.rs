@@ -255,6 +255,76 @@ fn test_create_bounty_empty_title_fails() {
     );
 }
 
+#[test]
+fn test_create_bounty_by_admin_succeeds() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    // Promote `admin` to Role::Admin
+    client.add_member(&guild_id, &admin, &Role::Admin, &owner);
+
+    let title = String::from_str(&env, "Admin bounty");
+    let description = String::from_str(&env, "Created by an explicit admin member");
+
+    let bounty_id = client.create_bounty(
+        &guild_id,
+        &admin,
+        &title,
+        &description,
+        &50i128,
+        &token,
+        &2000u64,
+    );
+
+    let bounty = client.get_bounty(&bounty_id);
+    assert_eq!(bounty.creator, admin);
+    assert_eq!(bounty.guild_id, guild_id);
+    assert_eq!(bounty.status, BountyStatus::AwaitingFunds);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_create_bounty_by_member_fails() {
+    let env = setup_env();
+    let owner = Address::generate(&env);
+    let member = Address::generate(&env);
+    let token = create_mock_token(&env, &owner);
+
+    set_ledger_timestamp(&env, 1000);
+    env.mock_all_auths();
+
+    let contract_id = register_and_init_contract(&env);
+    let client = StellarGuildsContractClient::new(&env, &contract_id);
+
+    let guild_id = setup_guild(&client, &env, &owner);
+
+    // Add `member` with regular Member role — not enough to create bounties
+    client.add_member(&guild_id, &member, &Role::Member, &owner);
+
+    let title = String::from_str(&env, "Task");
+    let description = String::from_str(&env, "Description");
+
+    client.create_bounty(
+        &guild_id,
+        &member,
+        &title,
+        &description,
+        &100i128,
+        &token,
+        &2000u64,
+    );
+}
+
 // ============ Bounty Funding Tests ============
 
 #[test]
