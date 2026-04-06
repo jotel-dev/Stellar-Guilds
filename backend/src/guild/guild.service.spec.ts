@@ -50,7 +50,7 @@ describe('GuildService (settings integration)', () => {
 
   it('creates guild with normalized settings', async () => {
     prisma.guild.findUnique.mockResolvedValue(null);
-    prisma.guild.create.mockImplementation(({ data }) =>
+    prisma.guild.create.mockImplementation(({ data }: any) =>
       Promise.resolve({ ...data, id: 'g1' }),
     );
 
@@ -81,6 +81,7 @@ describe('GuildService (settings integration)', () => {
     prisma.guild.update.mockImplementation(({ where, data }: any) =>
       Promise.resolve({ id: where.id, ...data }),
     );
+    prisma.guildMembership.findUnique.mockResolvedValue({ role: 'OWNER' });
 
     const updated = await service.updateGuild(
       guildId,

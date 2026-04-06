@@ -121,4 +121,4 @@ describe('StorageService', () => {
     await service.deleteFile(url);
     await expect(fs.access(filePath)).rejects.toThrow();
   });
-}
+});
