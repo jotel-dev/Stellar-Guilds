@@ -38,7 +38,7 @@ export default function GuildsPage() {
 
     const matchesCategory =
       selectedCategories.size === 0 ||
-      selectedCategories.has(guild.category);
+      (guild.category !== undefined && selectedCategories.has(guild.category));
 
     const matchesTier =
       !selectedTier || selectedTier === "All" || guild.tier === selectedTier;
